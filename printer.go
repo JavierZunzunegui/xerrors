@@ -5,22 +5,17 @@ import (
 	"sync"
 )
 
-var (
-	defaultBufferPool = sync.Pool{
-		New: func() interface{} {
-			return &bytes.Buffer{}
-		},
-	}
-)
-
-// NewPrinter initialises an error printer.
-func NewPrinter(fFactory func() Serializer) *Printer {
+// NewPrinter initialises an error printer, defined by the Formatter factory provided.
+//
+// [PROPOSAL NOTES]
+//
+// See Formatter
+func NewPrinter(fFactory func() Formatter) *Printer {
 	return &Printer{
 		pool: sync.Pool{
 			New: func() interface{} {
 				return &printerAlloc{
-					buf: bytes.Buffer{},
-					s:   fFactory(),
+					f: fFactory(),
 				}
 			},
 		},
@@ -29,12 +24,13 @@ func NewPrinter(fFactory func() Serializer) *Printer {
 
 // an auxiliary structure used for efficient use of sync.Pool within Printers
 type printerAlloc struct {
-	buf bytes.Buffer
-	s   Serializer
+	w         bytes.Buffer // used by String only
+	auxiliary bytes.Buffer // required for byte form of single error (payload)
+	f         Formatter    // defines a printer
 }
 
 // Printer is an error printer.
-// It is thin wrapper around a Serializer factory, this fully defines the output of the printer.
+// It is thin wrapper around a Formatter factory, this fully defines the output of the printer.
 type Printer struct {
 	pool sync.Pool
 }
@@ -44,14 +40,14 @@ type Printer struct {
 // For default, use err.Error() directly.
 // It is safe to be called concurrently.
 func (p *Printer) String(err error) string {
-	buf := defaultBufferPool.Get().(*bytes.Buffer)
+	alloc := p.pool.Get().(*printerAlloc)
 
-	p.Write(buf, err)
+	p.write(alloc.f, &alloc.w, &alloc.auxiliary, err)
 
-	out := buf.String()
+	out := alloc.w.String()
 
-	buf.Reset()
-	defaultBufferPool.Put(buf)
+	alloc.w.Reset()
+	p.pool.Put(alloc)
 
 	return out
 }
@@ -61,6 +57,12 @@ func (p *Printer) String(err error) string {
 func (p *Printer) Write(w *bytes.Buffer, err error) {
 	alloc := p.pool.Get().(*printerAlloc)
 
+	p.write(alloc.f, w, &alloc.auxiliary, err)
+
+	p.pool.Put(alloc)
+}
+
+func (p *Printer) write(f Formatter, w, auxiliary *bytes.Buffer, err error) {
 	wErr, ok := err.(*WrappingError)
 	if !ok {
 		wErr = &WrappingError{
@@ -68,19 +70,12 @@ func (p *Printer) Write(w *bytes.Buffer, err error) {
 		}
 	}
 
-	alloc.s.Init(wErr)
+	f.Init(wErr)
 
-	p.write(w, alloc.s, &alloc.buf)
-
-	p.pool.Put(alloc)
-}
-
-func (*Printer) write(w *bytes.Buffer, s Serializer, auxiliary *bytes.Buffer) {
-	var ok bool
 	var bufErr BufferError
 
-	for err := s.Next(); err != nil; err = s.Next() {
-		if ok = s.CustomFormat(err, auxiliary); !ok {
+	for err := f.Next(); err != nil; err = f.Next() {
+		if ok = f.CustomFormat(err, auxiliary); !ok {
 			if bufErr, ok = err.(BufferError); ok {
 				bufErr.ErrorToBuffer(auxiliary)
 			} else {
@@ -88,7 +83,7 @@ func (*Printer) write(w *bytes.Buffer, s Serializer, auxiliary *bytes.Buffer) {
 			}
 		}
 
-		s.Append(w, auxiliary.Bytes())
+		f.Append(w, auxiliary.Bytes())
 		auxiliary.Reset()
 	}
 }
@@ -106,16 +101,24 @@ type BufferError interface {
 	ErrorToBuffer(*bytes.Buffer)
 }
 
+var (
+	bufferErrorToStringPool = sync.Pool{
+		New: func() interface{} {
+			return &bytes.Buffer{}
+		},
+	}
+)
+
 // BufferErrorToString is an auxiliary method to facilitate the Error() method in BufferError implementations.
 func BufferErrorToString(buffErr BufferError) string {
-	buf := defaultBufferPool.Get().(*bytes.Buffer)
+	buf := bufferErrorToStringPool.Get().(*bytes.Buffer)
 
 	buffErr.ErrorToBuffer(buf)
 
 	out := buf.String()
 
 	buf.Reset()
-	defaultBufferPool.Put(buf)
+	bufferErrorToStringPool.Put(buf)
 
 	return out
 }

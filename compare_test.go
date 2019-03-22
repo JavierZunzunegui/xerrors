@@ -14,13 +14,6 @@ const (
 	expectEqual
 )
 
-type compareScenario struct {
-	name         string
-	err1         error
-	err2         error
-	expectations uint8
-}
-
 func TestContains(t *testing.T) {
 	for _, scenario := range compareScenarios() {
 		scenario := scenario
@@ -112,8 +105,18 @@ type barError struct{}
 
 func (barError) Error() string { return "bar" }
 
-func compareScenarios() []compareScenario {
-	return []compareScenario{
+func compareScenarios() []struct {
+	name         string
+	err1         error
+	err2         error
+	expectations uint8
+} {
+	return []struct {
+		name         string
+		err1         error
+		err2         error
+		expectations uint8
+	}{
 		{
 			name:         "equalSentinel",
 			err1:         xerrors.New("foo"),

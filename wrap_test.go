@@ -1,227 +1,119 @@
 package xerrors_test
 
 import (
-	"reflect"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/JavierZunzunegui/xerrors"
 )
 
-type fooError struct{}
+func TestWrappingError_Error(t *testing.T) {
+	scenarios := wrapErrorErrorScenarios()
 
-func (fooError) Error() string { return "foo" }
+	t.Run("individual", func(t *testing.T) {
+		for _, scenario := range scenarios {
+			scenario := scenario
 
-func (fooError) Foo() {}
+			t.Run(scenario.name, func(t *testing.T) {
+				if out, expectedOut := scenario.err.Error(), scenario.expectedOutput; out != expectedOut {
+					t.Fatalf("expected %q got %q", expectedOut, out)
+				}
+			})
+		}
+	})
 
-func TestFind(t *testing.T) {
-	scenarios := []struct {
-		name        string
-		err         error
-		f           func(error) bool
-		expectedOut error
-	}{
-		{
-			name:        "nil",
-			err:         nil,
-			f:           func(error) bool { panic("not to be called") },
-			expectedOut: nil,
-		},
-		{
-			name:        "nonWrappedFindAny",
-			err:         xerrors.New("msg"),
-			f:           func(error) bool { return true },
-			expectedOut: xerrors.New("msg"),
-		},
-		{
-			name:        "nonWrappedFindNone",
-			err:         xerrors.New("msg"),
-			f:           func(error) bool { return false },
-			expectedOut: nil,
-		},
-		{
-			name:        "basicWrappedFindAny",
-			err:         xerrors.WrapWithOpts(nil, xerrors.New("msg"), xerrors.StackOpts{}),
-			f:           func(error) bool { return true },
-			expectedOut: xerrors.New("msg"),
-		},
-		{
-			name:        "basicWrappedFindNone",
-			err:         xerrors.WrapWithOpts(nil, xerrors.New("msg"), xerrors.StackOpts{}),
-			f:           func(error) bool { return false },
-			expectedOut: nil,
-		},
-		{
-			name: "wrappedFindNotStack",
-			err: xerrors.Wrap(
-				xerrors.New("msg"),
-				xerrors.New("wrapper"),
-			),
-			f:           xerrors.IsNotStackError,
-			expectedOut: xerrors.New("wrapper"),
-		},
-		{
-			name: "wrappedFindAny",
-			err: xerrors.Wrap(
-				xerrors.New("msg"),
-				xerrors.New("wrapper"),
-			),
-			f:           func(error) bool { return true },
-			expectedOut: &xerrors.StackError{},
-		},
-		{
-			name: "wrappedFindNone",
-			err: xerrors.WrapWithOpts(
-				xerrors.New("msg"),
-				xerrors.New("wrapper"),
-				xerrors.StackOpts{},
-			),
-			f:           func(error) bool { return false },
-			expectedOut: nil,
-		},
-		{
-			name: "wrappedFooFindAny",
-			err: xerrors.WrapWithOpts(
-				fooError{},
-				xerrors.New("wrapper"),
-				xerrors.StackOpts{},
-			),
-			f:           func(error) bool { return true },
-			expectedOut: xerrors.New("wrapper"),
-		},
-		{
-			name: "wrappedFooFindNone",
-			err: xerrors.WrapWithOpts(
-				fooError{},
-				xerrors.New("wrapper"),
-				xerrors.StackOpts{},
-			),
-			f:           func(error) bool { return false },
-			expectedOut: nil,
-		},
-		{
-			name: "wrappedFooFindSpecificTyped",
-			err: xerrors.WrapWithOpts(
-				fooError{},
-				xerrors.New("wrapper"),
-				xerrors.StackOpts{},
-			),
-			f:           func(err error) bool { _, ok := err.(fooError); return ok },
-			expectedOut: fooError{},
-		},
-		{
-			name: "wrappedFooFindNotSpecificTyped",
-			err: xerrors.WrapWithOpts(
-				fooError{},
-				xerrors.New("wrapper"),
-				xerrors.StackOpts{},
-			),
-			f:           func(err error) bool { _, ok := err.(fooError); return !ok },
-			expectedOut: xerrors.New("wrapper"),
-		},
-		{
-			name: "fooWrappingFindAny",
-			err: xerrors.WrapWithOpts(
-				xerrors.New("msg"),
-				fooError{},
-				xerrors.StackOpts{},
-			),
-			f:           func(error) bool { return true },
-			expectedOut: fooError{},
-		},
-		{
-			name: "fooWrappingFindNone",
-			err: xerrors.WrapWithOpts(
-				xerrors.WrapWithOpts(nil, xerrors.New("msg"), xerrors.StackOpts{}),
-				fooError{},
-				xerrors.StackOpts{},
-			),
-			f:           func(error) bool { return false },
-			expectedOut: nil,
-		},
-		{
-			name: "fooWrappingFindSpecificTyped",
-			err: xerrors.WrapWithOpts(
-				xerrors.WrapWithOpts(nil, xerrors.New("msg"), xerrors.StackOpts{}),
-				fooError{},
-				xerrors.StackOpts{},
-			),
-			f:           func(err error) bool { _, ok := err.(fooError); return ok },
-			expectedOut: fooError{},
-		},
-		{
-			name: "fooWrappingFindNotSpecificTyped",
-			err: xerrors.WrapWithOpts(
-				xerrors.WrapWithOpts(nil, xerrors.New("msg"), xerrors.StackOpts{}),
-				fooError{},
-				xerrors.StackOpts{},
-			),
-			f:           func(err error) bool { _, ok := err.(fooError); return !ok },
-			expectedOut: xerrors.New("msg"),
-		},
-	}
+	t.Run("stress", func(t *testing.T) {
+		const stressReps = 10000
+
+		for _, scenario := range scenarios {
+			scenario := scenario
+
+			t.Run(scenario.name, func(t *testing.T) {
+				wg := sync.WaitGroup{}
+				var errorCount int32
+
+				wg.Add(stressReps)
+				for i := 0; i < stressReps; i++ {
+					go func() {
+						if out, expectedOut := scenario.err.Error(), scenario.expectedOutput; out != expectedOut {
+							atomic.AddInt32(&errorCount, 1)
+						}
+						wg.Done()
+					}()
+				}
+
+				wg.Wait()
+
+				if errorCount != 0 {
+					t.Fatalf("expecting no async related errors, found %d/%d", errorCount, stressReps)
+				}
+			})
+		}
+	})
+}
+
+func BenchmarkWrappingError_Error(b *testing.B) {
+	scenarios := wrapErrorErrorScenarios()
 
 	for _, scenario := range scenarios {
 		scenario := scenario
-		t.Run(scenario.name, func(t *testing.T) {
-			out := xerrors.Find(scenario.err, scenario.f)
-			if xerrors.IsStackError(scenario.expectedOut) {
-				// stack error comparison is difficult, just doing type matching
-				if !xerrors.IsStackError(out) {
-					t.Fatal("mismatched outputs, expecting to produce a StackError")
-				}
-			} else if !reflect.DeepEqual(out, scenario.expectedOut) {
-				t.Fatalf("mismatched outputs, expected %q got %q", scenario.expectedOut, out)
+
+		b.Run(scenario.name, func(b *testing.B) {
+			b.ResetTimer()
+
+			for i := 0; i < b.N; i++ {
+				// not bothering to check the output, already covered in the tests
+				_ = scenario.err.Error()
 			}
 		})
 	}
 }
 
-func TestCause(t *testing.T) {
-	scenarios := []struct {
-		name        string
-		err         error
-		expectedOut error
+func wrapErrorErrorScenarios() []struct {
+	name           string
+	err            *xerrors.WrappingError
+	expectedOutput string
+} {
+	return []struct {
+		name           string
+		err            *xerrors.WrappingError
+		expectedOutput string
 	}{
 		{
-			name:        "nil",
-			err:         nil,
-			expectedOut: nil,
+			name:           "nonWrapped",
+			err:            xerrors.Wrap(nil, xerrors.New("msg")).(*xerrors.WrappingError),
+			expectedOutput: "msg",
 		},
 		{
-			name:        "nonWrapped",
-			err:         xerrors.New("msg"),
-			expectedOut: xerrors.New("msg"),
-		},
-		{
-			name:        "nilWrapped",
-			err:         xerrors.Wrap(nil, xerrors.New("msg")),
-			expectedOut: xerrors.New("msg"),
-		},
-		{
-			name:        "wrapped",
-			err:         xerrors.Wrap(xerrors.New("msg"), xerrors.New("wrapper")),
-			expectedOut: xerrors.New("msg"),
+			name: "singleWrapped",
+			err: xerrors.Wrap(
+				xerrors.New("cause_msg"),
+				xerrors.New("wrapping_msg"),
+			).(*xerrors.WrappingError),
+			expectedOutput: "wrapping_msg: cause_msg",
 		},
 		{
 			name: "doubleWrapped",
 			err: xerrors.Wrap(
 				xerrors.Wrap(
-					xerrors.New("msg"),
-					xerrors.New("wrapper_1"),
+					xerrors.New("cause_msg"),
+					xerrors.New("wrapping_msg_1"),
 				),
-				xerrors.New("wrapper_2"),
-			),
-			expectedOut: xerrors.New("msg"),
+				xerrors.New("wrapping_msg_2"),
+			).(*xerrors.WrappingError),
+			expectedOutput: "wrapping_msg_2: wrapping_msg_1: cause_msg",
 		},
-	}
-
-	for _, scenario := range scenarios {
-		scenario := scenario
-		t.Run(scenario.name, func(t *testing.T) {
-			out := xerrors.Cause(scenario.err)
-			if !reflect.DeepEqual(out, scenario.expectedOut) {
-				t.Fatalf("mismatched outputs, expected %q got %q", scenario.expectedOut, out)
-			}
-		})
+		{
+			name: "tripleWrapped",
+			err: xerrors.Wrap(
+				xerrors.Wrap(
+					xerrors.New("cause_msg"),
+					xerrors.New("wrapping_msg_1"),
+				),
+				xerrors.New("wrapping_msg_2"),
+			).(*xerrors.WrappingError),
+			expectedOutput: "wrapping_msg_2: wrapping_msg_1: cause_msg",
+		},
 	}
 }

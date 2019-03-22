@@ -11,7 +11,7 @@ func equal(err1, err2 error) bool {
 		return true
 	}
 
-	return reflect.DeepEqual(reflect.TypeOf(err1), reflect.TypeOf(err2)) && err1.Error() == err2.Error()
+	return reflect.TypeOf(err1) == reflect.TypeOf(err2) && err1.Error() == err2.Error()
 }
 
 // for a non-WrapperError error, equalFunc returns a function that is true if its argument is of the same type and has
@@ -28,6 +28,10 @@ func equalFunc(err error) func(error) bool {
 // Similar compares to errors and validates if they are logically identical.
 // This involves checking all error types and Error() outputs are identical, but ignores wrapped StackErrors.
 // It is a replacement for reflect.DeepEqual(err1, err2) as the frame information will cause false negatives.
+//
+// [PROPOSAL NOTES]
+//
+// reflect.DeepEqual(err1, err2) to be migrated to use this
 func Similar(err1, err2 error) bool {
 	wErr1, ok1 := err1.(*WrappingError)
 	wErr2, ok2 := err2.(*WrappingError)
@@ -49,7 +53,7 @@ func Similar(err1, err2 error) bool {
 
 // similar is the WrappingError-only form of Similar
 func similar(wErr1, wErr2 *WrappingError) bool {
-	for wErr1, wErr2 = wErr1.Find(IsNotStackError), wErr2.Find(IsNotStackError); wErr1 != nil && wErr2 != nil; wErr1, wErr2 = wErr1.next.Find(IsNotStackError), wErr2.next.Find(IsNotStackError) {
+	for wErr1, wErr2 = find(wErr1, isNotStackError), find(wErr2, isNotStackError); wErr1 != nil && wErr2 != nil; wErr1, wErr2 = find(wErr1.next, isNotStackError), find(wErr2.next, isNotStackError) {
 		if !equal(wErr1.payload, wErr2.payload) {
 			return false
 		}
@@ -65,6 +69,10 @@ func similar(wErr1, wErr2 *WrappingError) bool {
 // Contains checks if err2 is logically contained within err1.
 // This involves checking all wrapped error types and Error() outputs in err2 appear in err1 in identical order.
 // It ignores wrapped FrameErrors altogether.
+//
+// [PROPOSAL NOTES]
+//
+// if err1 == err2 {...} comparisons to be migrated to use this
 func Contains(err1, err2 error) bool {
 	wErr2, ok2 := err2.(*WrappingError)
 	if !ok2 {
@@ -84,8 +92,8 @@ func Contains(err1, err2 error) bool {
 
 // contains is the WrappingError-only form of Contains
 func contains(wErr1, wErr2 *WrappingError) bool {
-	for wErr2 = wErr2.Find(IsNotStackError); wErr2 != nil; wErr2 = wErr2.next.Find(IsNotStackError) {
-		wErr1 = wErr1.Find(equalFunc(wErr2.payload))
+	for wErr2 = find(wErr2, isNotStackError); wErr2 != nil; wErr2 = find(wErr2.next, isNotStackError) {
+		wErr1 = find(wErr1, equalFunc(wErr2.payload))
 		if wErr1 == nil {
 			return false
 		}

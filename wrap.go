@@ -1,120 +1,171 @@
 package xerrors
 
+// [PROPOSAL NOTES]
+//
+// I just picked an arbitrary value for now, the real thing needs more thought
+const defaultDepth = 10
+
+// WrappingError provides the error wrapping functionality, and is exclusively the only error type doing so.
+// Each WrappingError holds a (non-WrappingError, non-nil) error as the payload, and points to the next WrappingError.
+// The causal error (lowest in the wrapping chain) points to nil.
+//
+// A visual representation of WrappingError:
+//
+// WrappingError - [error] payload (non-nil, non-WrappingError, the last to be wrapped)
+//      | [*WrappingError] next
+// WrappingError - [error]  payload (non-nil, non-WrappingError)
+//      |
+//     ...
+//      |
+// WrappingError [error]  payload (non-nil, non-WrappingError, the causal error)
+//      | [*WrappingError] next
+//     nil
 type WrappingError struct {
 	payload error
 	next    *WrappingError
 }
 
+func isWrappingError(err error) bool {
+	_, ok := err.(*WrappingError)
+	return ok
+}
+
+// Error serializes the target according to the default colon serializer, omitting frames and joining with ": ".
+// For example, for "wrapper-2" -> "wrapper-1" -> StackError -> "cause" the result would be:
+// "wrapper-2: wrapper-1: cause"
 func (wErr *WrappingError) Error() string {
 	return defaultPrinter.String(wErr)
 }
 
+// Payload is a getter to payload error.
+// It is non-nil and never a WrappingError.
 func (wErr *WrappingError) Payload() error {
 	return wErr.payload
 }
 
+// Next is a getter for the next WrappingError in the chain.
+// It returns nil for the last error in the chain.
 func (wErr *WrappingError) Next() *WrappingError {
 	return wErr.next
 }
 
-func (wErr *WrappingError) Find(f func(error) bool) *WrappingError {
-	for ; wErr != nil; wErr = wErr.next {
-		if f(wErr.payload) {
-			return wErr
-		}
-	}
-
-	return nil
+var defaultStackOpts = StackOpts{
+	Skip:  0 + 1,
+	Depth: defaultDepth,
 }
 
-func Find(err error, f func(error) bool) error {
-	wErr, ok := err.(*WrappingError)
-	if !ok {
-		if err == nil || !f(err) {
+// StackOpts defines how stacks are recorded
+type StackOpts struct {
+	Skip  uint8
+	Depth uint8
+}
+
+// Wrap produces a WrappingError out of two errors and is the standard way users should produce these.
+// If the input errors aren't already wrapped, it will also add a default stack to the output error via StackError.
+// If err or payload are non-null, the output of Wrapped is not nil. Double nil input is discouraged.
+// The order of wrapping is payload wraps err. Payload is discouraged from being a WrappingError itself.
+//
+// If added, the stack has depth 10 or less (see defaultDepth) and starting from Wrap, Wrap not included.
+func Wrap(err, payload error) error {
+	if payload == nil {
+		if err == nil {
+			// avoid doing this
 			return nil
 		}
-		return err
-	}
 
-	wErr = wErr.Find(f)
-	if wErr == nil {
-		return nil
-	}
-
-	return wErr.payload
-}
-
-func Cause(err error) error {
-	wErr, ok := err.(*WrappingError)
-	if !ok {
-		return err
-	}
-
-	for ; wErr.next != nil; wErr = wErr.next {
-	}
-
-	return wErr.payload
-}
-
-var defaultFrameOpts = StackOpts{
-	Skip:        0 + 1,
-	Depth:       10,
-	IsSameStack: false,
-}
-
-type StackOpts struct {
-	Skip        uint8
-	Depth       uint8
-	IsSameStack bool
-}
-
-// payload must not be empty, must not be type *WrappingError
-// err may or may not be empty, may or may not be *WrappingError
-func Wrap(err, payload error) error {
-	if err == nil {
-		return frameWrap(&WrappingError{payload: payload}, defaultFrameOpts)
-	}
-
-	if next, ok := err.(*WrappingError); ok {
-		return &WrappingError{
-			payload: payload,
-			next:    next,
+		if _, ok := err.(*WrappingError); ok {
+			return err
 		}
+
+		return frameWrap(&WrappingError{payload: err}, defaultStackOpts)
 	}
 
-	wErr := &WrappingError{
-		payload: payload,
-		next: &WrappingError{
-			payload: err,
-		},
+	if err == nil {
+		if _, ok := payload.(*WrappingError); ok {
+			// avoid doing this, payload should not be a WrappingError
+			return payload
+		}
+
+		return frameWrap(&WrappingError{payload: payload}, defaultStackOpts)
 	}
 
-	return frameWrap(wErr, defaultFrameOpts)
+	out := merge(err, payload)
+
+	if isWrappingError(err) || isWrappingError(payload) {
+		// if already wrapped not attempting to add a stack
+		return out
+	}
+
+	return frameWrap(out, defaultStackOpts)
 }
 
-// payload must not be empty
-// err may or may not be empty
+// WrapWithOpts is similar to Wrap except with regards to adding stacks.
+// It adds a stack with the given opts regardless of the values of err and payload, including if they are WrappingError,
+// except for the double nil input which returns nil (and is discouraged).
+// If opts.Depth is 0 the StackError is not added, but the returned error is still a WrappingError.
+//
+// Use WrapWithOpts:
+// - when not wanting frames at all (wrap causal error with Depth=0)
+// - when an error changes goroutine and capturing an additional stack is desired
 func WrapWithOpts(err error, payload error, opts StackOpts) error {
 	opts.Skip++
 
-	if err == nil {
-		return frameWrap(&WrappingError{payload: payload}, opts)
+	if payload == nil {
+		if err == nil {
+			// avoid doing this
+			return nil
+		}
+
+		wErr, ok := err.(*WrappingError)
+		if !ok {
+			wErr = &WrappingError{payload: err}
+		}
+
+		return frameWrap(wErr, opts)
 	}
 
-	next, ok := err.(*WrappingError)
-	if !ok {
-		next = &WrappingError{
+	if err == nil {
+		wErr, ok := payload.(*WrappingError)
+		if !ok {
+			wErr = &WrappingError{payload: payload}
+		}
+
+		return frameWrap(wErr, opts)
+	}
+
+	out := merge(err, payload)
+
+	return frameWrap(out, opts)
+}
+
+func merge(err, payload error) *WrappingError {
+	out := &WrappingError{}
+
+	// used to build up the out error,
+	current := out
+
+	if pErr, ok := payload.(*WrappingError); ok {
+		// avoid doing this, payload should not be WrappingError as it causes many allocations
+		current.payload = pErr.payload
+
+		for pErr = pErr.next; pErr != nil; current, pErr = current.next, pErr.next {
+			current.next = &WrappingError{
+				payload: pErr.payload,
+			}
+		}
+	} else {
+		current.payload = payload
+	}
+
+	if eErr, ok := err.(*WrappingError); ok {
+		current.next = eErr
+	} else {
+		current.next = &WrappingError{
 			payload: err,
 		}
 	}
 
-	return frameWrap(
-		&WrappingError{
-			payload: payload,
-			next:    next,
-		},
-		opts,
-	)
+	return out
 }
 
 func frameWrap(wErr *WrappingError, opts StackOpts) *WrappingError {
@@ -129,43 +180,3 @@ func frameWrap(wErr *WrappingError, opts StackOpts) *WrappingError {
 		next:    wErr,
 	}
 }
-
-/*
-
-type wrapOptions struct {
-	omitFrame bool
-	skip      uint8
-}
-
-// WrapOptionFunc represent optional arguments to NewWrapping or Wrap methods.
-type WrapOptionFunc = func(wrapOptions) wrapOptions
-
-// OmitFrame stops frames from being included in NewWrapping or Wrap methods.
-func OmitFrame() WrapOptionFunc {
-	return func(opts wrapOptions) wrapOptions {
-		opts.omitFrame = true
-		return opts
-	}
-}
-
-// SkipNFrames can be used to have the frame reported in NewWrapping or Wrap be something other than the calling one.
-func SkipNFrames(skip uint8) WrapOptionFunc {
-	return func(opts wrapOptions) wrapOptions {
-		opts.skip += skip
-		return opts
-	}
-}
-
-func newWrapping(err error, wrapOpts wrapOptions, opts ...WrapOptionFunc) Wrapping {
-	for _, opt := range opts {
-		wrapOpts = opt(wrapOpts)
-	}
-
-	if wrapOpts.omitFrame {
-		return Wrapping{err: err}
-	}
-
-	return Wrapping{err: newFrameError(wrapOpts.skip+1, err)}
-}
-
-*/

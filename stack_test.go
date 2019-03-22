@@ -23,7 +23,7 @@ func TestStackError_Error(t *testing.T) {
 	// line = 24
 	err := errFunc1()
 
-	msg := xerrors.Find(err, xerrors.IsStackError).Error()
+	msg := xerrors.Find(err, func(e error) bool { _, ok := e.(*xerrors.StackError); return ok }).Error()
 
 	const (
 		thisPkg  = "github[.]com[/]JavierZunzunegui[/]xerrors_test"
