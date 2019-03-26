@@ -8,18 +8,6 @@ const defaultDepth = 10
 // WrappingError provides the error wrapping functionality, and is exclusively the only error type doing so.
 // Each WrappingError holds a (non-WrappingError, non-nil) error as the payload, and points to the next WrappingError.
 // The causal error (lowest in the wrapping chain) points to nil.
-//
-// A visual representation of WrappingError:
-//
-// WrappingError - [error] payload (non-nil, non-WrappingError, the last to be wrapped)
-//      | [*WrappingError] next
-// WrappingError - [error]  payload (non-nil, non-WrappingError)
-//      |
-//     ...
-//      |
-// WrappingError [error]  payload (non-nil, non-WrappingError, the causal error)
-//      | [*WrappingError] next
-//     nil
 type WrappingError struct {
 	payload error
 	next    *WrappingError

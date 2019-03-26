@@ -12,10 +12,10 @@ import (
 // The motivation for a Formatter arises from the different needs on how wrapped errors are converted to strings, and
 // the different context on which they arise.
 // Some examples:
-// - want all errors to be logged in a particular format (e.g. JSON) for better consumption by a log aggregator.
-// - only want to display some specific errors, such as only errors approved for user display in a HTTP response.
-// - want the stack to be logged in a particular way.
-// - ...
+//   - want all errors to be logged in a particular format (e.g. JSON) for better consumption by a log aggregator.
+//   - only want to display some specific errors, such as only errors approved for user display in a HTTP response.
+//   - want the stack to be logged in a particular way.
+//   - ...
 //
 // The key thing here is this requirements are not known at the time the error is generated (and may in fact want to use
 // more than one Formatter sometimes) so they must belong to an external component, here called Formatter.
@@ -40,12 +40,9 @@ type Formatter interface {
 	// or checking if it implements a specific interface or interfaces.
 	// This means the Formatter may have to have some explicit knowledge of the errors it handles.
 	// Some highlights in this regards:
-	// - Some Formatters may want to reject altogether errors that don't match certain criteria, use Formatter.Next for
-	// these (e.g. converting errors to strings that may be visible to users).
-	// - Similarly, Formatters may want to exclude errors that do match certain criteria (e.g. error types containing
-	// sensitive information unsafe for general logging).
-	// - Some Formatters may want to keep all errors and yet apply some custom logic to errors of unrecognised type, by
-	// relying on the output of Error() (e.g. applying JSON encoding).
+	//   - Some Formatters may want to reject altogether errors that don't match certain criteria, use Formatter.Next for these (e.g. converting errors to strings that may be visible to users).
+	//   - Similarly, Formatters may want to exclude errors that do match certain criteria (e.g. error types containing sensitive information unsafe for general logging).
+	//   - Some Formatters may want to keep all errors and yet apply some custom logic to errors of unrecognised type, by relying on the output of Error() (e.g. applying JSON encoding).
 	//
 	// To facilitate a scalable approach and easier integration of errors in 3rd party libraries with custom Formatters,
 	// it would be advisable to encourage some minimal standards amongst errors such as having certain method(s):
@@ -64,10 +61,6 @@ type Formatter interface {
 	// The input bytes will be the content of CustomFormat's buffer, or Error().
 	Append(*bytes.Buffer, []byte)
 }
-
-var (
-	colonSeparator = []byte(": ")
-)
 
 type colonFormatter struct {
 	currentErr *WrappingError
@@ -97,7 +90,7 @@ func (s *colonFormatter) Append(w *bytes.Buffer, msg []byte) {
 	if s.firstEntry {
 		s.firstEntry = false
 	} else {
-		w.Write(colonSeparator)
+		w.WriteString(": ")
 	}
 
 	w.Write(msg)
