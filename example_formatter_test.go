@@ -10,17 +10,10 @@ import (
 	"github.com/JavierZunzunegui/xerrors"
 )
 
-// Example_formatter shows how a single error can be converted to a string in many different ways
+// Example_formatter shows how a single error can be converted to a string in many different ways.
+// The key highlight is it is the same error, what changes is the Formatter used.
 func Example_formatter() {
-	err := xerrors.Wrap(
-		func() error {
-			return xerrors.Wrap(
-				func() error { return xerrors.Wrap(nil, xerrors.New("cause")) }(),
-				xerrors.New("bar"),
-			)
-		}(),
-		xerrors.New("foo"),
-	)
+	err := foo()
 
 	// the printers have no special meaning, just doing several different implementations to showcase the functionality
 
@@ -39,21 +32,21 @@ func Example_formatter() {
 	fmt.Println("reverse default:")
 	fmt.Println(reverseColonPrinter.String(err))
 
-	//Output:
-	//default:
-	//foo: bar: cause
+	// Output:
+	// default:
+	// foo: bar-abc: some error
 	//
-	//short stacks:
-	//xerrors_test.Example_formatter.func1.1 - xerrors_test.Example_formatter.func1 - xerrors_test.Example_formatter - testing.runExample - testing.runExamples - testing.(*M).Run - main.main - runtime.main - runtime.goexit
+	// short stacks:
+	// (xerrors_test.errFunc - xerrors_test.bar - xerrors_test.foo - xerrors_test.Example_formatter - testing.runExample - testing.runExamples - testing.(*M).Run - main.main - runtime.main - runtime.goexit)
 	//
-	//default and short stacks:
-	//foo: bar: cause (xerrors_test.Example_formatter.func1.1 - xerrors_test.Example_formatter.func1 - xerrors_test.Example_formatter - testing.runExample - testing.runExamples - testing.(*M).Run - main.main - runtime.main - runtime.goexit)
+	// default and short stacks:
+	// foo: bar-abc: some error (xerrors_test.errFunc - xerrors_test.bar - xerrors_test.foo - xerrors_test.Example_formatter - testing.runExample - testing.runExamples - testing.(*M).Run - main.main - runtime.main - runtime.goexit)
 	//
-	//JSON:
-	//["foo","bar","cause"]
+	// JSON:
+	// ["foo","bar-abc","some error"]
 	//
-	//reverse default:
-	//cause: bar: foo
+	// reverse default:
+	// some error: bar-abc: foo
 }
 
 var shortStackPrinter = xerrors.NewPrinter(func() xerrors.Formatter { return &shortStackFormatter{} })
@@ -91,6 +84,7 @@ func (s *shortStackFormatter) CustomFormat(err error, buf *bytes.Buffer) bool {
 	stackErr := err.(*xerrors.StackError)
 	frames := stackErr.Frames()
 
+	buf.WriteString("(")
 	frame, ok := frames.Next()
 	shortFormatFrame(frame, buf)
 
@@ -99,6 +93,7 @@ func (s *shortStackFormatter) CustomFormat(err error, buf *bytes.Buffer) bool {
 		buf.WriteString(" - ")
 		shortFormatFrame(frame, buf)
 	}
+	buf.WriteString(")")
 
 	return true
 }
@@ -119,7 +114,7 @@ func (s *shortStackFormatter) Append(w *bytes.Buffer, msg []byte) {
 	if s.firstEntry {
 		s.firstEntry = false
 	} else {
-		w.WriteString(" - ")
+		w.WriteString(" ")
 	}
 
 	w.Write(msg)

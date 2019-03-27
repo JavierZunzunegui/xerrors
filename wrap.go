@@ -49,11 +49,20 @@ type StackOpts struct {
 }
 
 // Wrap produces a WrappingError out of two errors and is the standard way users should produce these.
+//
+// The intended use is:
+//   if err != nil {
+//     return Wrap(err, SomeNewError)
+//   }
+//   ...
+//
+// For new errors, simply call return Wrap(nil, SomeCausalError)
+//
 // If the input errors aren't already wrapped, it will also add a default stack to the output error via StackError.
-// If err or payload are non-null, the output of Wrapped is not nil. Double nil input is discouraged.
+// If err or payload are non-null, the output is a WrappingError. Double nil input returns nil but is discouraged.
 // The order of wrapping is payload wraps err. Payload is discouraged from being a WrappingError itself.
 //
-// If added, the stack has depth 10 or less (see defaultDepth) and starting from Wrap, Wrap not included.
+// If added, the stack starts from Wrap, Wrap not included.
 func Wrap(err, payload error) error {
 	if payload == nil {
 		if err == nil {

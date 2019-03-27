@@ -25,15 +25,18 @@ func isNotStackError(err error) bool {
 //
 // [PROPOSAL NOTES]
 //
-// StackError holds full stacks (collections of frames), and not single frames like in the original proposal.
-// This means connecting the message and the exact frame that produced it is no longer possible, i.e.
-// "foo (fooFunc): bar (barFunc): ..."
-// is no longer possible, instead have to settle with
-// "foo: bar ... (fooFunc, barFunc, ...)"
+// In this proposal, a single StackError is normally required per wrapped error, normally towards the bottom of the
+// error chain.
+// This is made trivially easy by the Wrap method.
+// The alternative would be to wrap errors with single frames, wrapping each new error in the chain with a new frame.
+// The frame option is the direction taken in the original proposal, which this one deviates from.
 //
-// On the plus side, it means frames is no longer a need to wrap every error, as long as it is wrapped close to the
-// causal error all frames are captured. It also limits memory allocation and performance cost through only calling
-// runtime.Callers once an producing one single StackError
+// The main advantage of stacks over frames users don't have to wrap all errors for them to get frame information.
+//
+// The main disadvantage that we can't tell with wrapped errors belongs with which frame, i.e.:
+// "foo (fooFunc): bar (barFunc): ..."
+// is only possible with frame wrapping, with stacks we have to settle with
+// "foo: bar ... (fooFunc, barFunc, ...)"
 //
 // Note however this difference is otherwise irrelevant in the proposal, a frame StackError could be replaced with a
 // FrameError trivially easily if the stack option was not favoured

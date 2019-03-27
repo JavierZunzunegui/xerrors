@@ -6,10 +6,10 @@
 // Compared to the original proposal, this one:
 //   - has no requirement on error types (no `Unwrap() error` or equivalent)
 //   - allows for custom error conversion to string in a more powerful manner
-//   - has no automatic migration to wrapping form (code is not immediately using wrapping)
-//   - uses stacks and not frames, and integrates them seamlessly with formatter
-//   - compile-time safe implementation with fewer gotchas
+//   - has no automatic migration to wrapping form (code is not immediately using wrapping, no %w or equivalent)
+//   - transparently ads stack information to wrapped errors
+//   - compile-time safe implementation with few gotchas
 //   - can compare errors without requiring modification of reflect.DeepEqual
 //
-// If new to this proposal, I suggest you look at the examples first as the are intended to showcase the new functionality.
+// If new to this proposal, I suggest you look at the examples first as they are intended to showcase the new functionality.
 package xerrors
