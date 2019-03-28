@@ -4,7 +4,7 @@
 
 This code is not otherwise meant to be imported or used.
 
-The debate is in **TODO** (go issue).
+The discussion and feedback is in this [go issue](https://github.com/golang/go/issues/31111).
 
 The best way to review the code is via its 
 [![GoDoc](https://godoc.org/github.com/JavierZunzunegui/xerrors?status.svg)](https://godoc.org/github.com/JavierZunzunegui/xerrors).
